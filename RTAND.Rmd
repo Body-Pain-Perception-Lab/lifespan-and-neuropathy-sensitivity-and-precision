@@ -1,0 +1,2178 @@
+---
+title: "Report on the thresholding results in the ageing and neuropathy dataset"
+output:
+  pdf_document: default
+date: "2025-05-23"
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup,include=F}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+library(readxl)
+library(tidyverse)
+library(cmdstanr)
+library(bayesplot)
+library(loo)
+
+inv_logit<-function(x){
+  y=1/(1+exp(-x))
+  return(y)
+}
+density_at_zero <- function(x) {
+  dens <- density(x, from = 0, to = 0, n = 1)  # force evaluation at 0
+  dens$y[1]
+}
+
+echo_f=F
+error_f=F
+warning_f=F
+message_f=F
+```
+
+# Data quality assesment
+
+In the pre-registration, we defined three control measures to ensure data quality before proceeding to data analysis.
+
+## Questionnaire
+
+The first one was that control participants should have a Michigan Neuropathy Screening Instrument questionnaire score of less than 7.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+MNSI_controls <- read_excel("data/MNSI_controls.xlsx") %>% 
+    filter(ID%in%c(2003,2007,2021,3006,3009,3012,3017,4003,4025)) #exclusion based on existing pathologies/drugs
+
+MNSI_controls %>% 
+  ggplot()+
+  geom_histogram(aes(x=MNSI),binwidth = 1)+
+  geom_vline(aes(xintercept = 7))+
+  theme_minimal()
+```
+
+No participant needs to be excluded based on this criterion.
+
+## Temperature recording
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+d <- read_csv("data/aggregated_results.csv")
+dm_r<-mean(d$recording_deviates_from_mean)
+dm_n<-sum(d$recording_deviates_from_mean)
+dm_t<-sum(!is.na(d$recording_deviates_from_mean))
+dt_r<-mean(d$recording_deviates_from_target)
+dt_n<-sum(d$recording_deviates_from_target)
+dt_t<-sum(!is.na(d$recording_deviates_from_mean))
+
+```
+
+The control of temperature recordings was done in MATLAB.
+Temperature deviated from target by more than 1 C in `r dt_n` out of `r dt_t` trials, which correponds to `r sprintf('%0.2f',100*dt_r)`% of all trials.
+Temperature deviated from the mean of the temperature recording by more than .2 C in`r dm_n` out of `r dm_t` trials, which correponds to `r sprintf('%0.2f',100*dm_r)`% of all trials.
+All these trials were excluded from further analysis.
+
+## Saturation check
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+d <- read_csv("data/aggregated_results.csv") %>% 
+  filter(
+    recording_deviates_from_target==0,
+    recording_deviates_from_mean==0,
+    !is.na(response),
+    subject<5000
+         )
+
+df_cummean <- d %>%
+  arrange(subject, condition, recorded_intensity) %>%
+  group_by(subject, condition) %>%
+  mutate(cum_mean_response = cummean(response)) %>%
+  ungroup()
+
+
+df_cummean %>% 
+  filter(condition %in% c(1,3),subject<3000) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=cum_mean_response,
+      colour = as.factor(condition)))+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()+
+  scale_colour_manual(
+    values=c('#56B4E9','#0072B2'),
+    labels=c('CD','CP')
+  )
+
+d %>% 
+  filter(condition %in% c(1,3),subject<3000) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=response,
+      colour = as.factor(condition)),
+    alpha=.5)+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()
+
+df_cummean %>% 
+  filter(condition %in% c(1,3),subject>2999) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=cum_mean_response,
+      colour = as.factor(condition)))+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()+
+  scale_colour_manual(
+    values=c('#56B4E9','#0072B2'),
+    labels=c('CD','CP')
+  )
+
+d %>% 
+  filter(condition %in% c(1,3),subject>2999) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=response,
+      colour = as.factor(condition)),
+    alpha=.5)+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()
+
+df_cummean %>% 
+  filter(condition %in% c(2,4),subject<3000) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=cum_mean_response,
+      colour = as.factor(condition)))+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()+
+  scale_colour_manual(
+    values=c('#E69F00','#D55E00'),
+    labels=c('WD','HP')
+  )
+
+d %>% 
+  filter(condition %in% c(2,4),subject<3000) %>% 
+  ggplot(aes(x=recorded_intensity,y=response,colour = as.factor(condition)))+
+  geom_point(alpha=.5)+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()
+
+df_cummean %>% 
+  filter(condition %in% c(2,4),subject>2999) %>% 
+  ggplot()+
+  geom_point(
+    aes(
+      x=recorded_intensity,
+      y=cum_mean_response,
+      colour = as.factor(condition)))+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()+
+  scale_colour_manual(
+    values=c('#E69F00','#D55E00'),
+    labels=c('WD','HP')
+  )
+
+d %>% 
+  filter(condition %in% c(2,4),subject>2999) %>% 
+  ggplot(aes(x=recorded_intensity,y=response,colour = as.factor(condition)))+
+  geom_point(alpha=.5)+
+  facet_wrap(as.factor(subject)~.)+
+  theme_minimal()
+```
+
+The only participant we decide to exclude based on these plots is 3019, as they showed pain sensitivity at abnormally low intensities/below detection intensities.
+
+# Ageing only models
+
+We start by running models that only echo the healthy control volunteers to assess the effect of ageing on the different parameters of interest.
+This sacrifices a little bit of power in the estimation of these effects but limits the risk of not being able to fit the model.
+In case the ageing only and the ageing and neuropathy models can be sampled properly and give consistant results, we will switch to the ageing and neuropathy models as sole model for inference.
+
+## Diagnostics
+
+First, we check the sampling diagnostic for the different ageing only joint models.
+These diagnostic criteria are: -No post-warm-up divergent transition -Less than 10% of post-warm-up transitions hitting maximum tree depth -EBFMI larger than 0.3 for all chains -All group-level estimates and participant-level alpha and beta estimates having a R-hat values of less than 1.01 and ESS of at least 400.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing/Gaussian_unconstrained_threshold_ageing.rds",
+  "results/fits/ageing/Gaussian_constrained_threshold_ageing.rds",
+  "results/fits/ageing/Quick_constrained_threshold_ageing.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+  
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+The Gaussian unconstrained model shows suboptimal convergence and poor ESS for some parameters.
+The pre-registration mentioned model simplification by elimination of the guess and lapse rate dependencies on age as a possible step in case the models cannot be properly sampled.
+Let's see if such simplified models have good enough diagnostics.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing/Gaussian_unconstrained_threshold_ageing_GLN.rds",
+  "results/fits/ageing/Gaussian_constrained_threshold_ageing_GLN.rds",
+  "results/fits/ageing/Quick_constrained_threshold_ageing_GLN.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+  
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+This improved the situation. Only one group level parameter has convergence below the pre-registered cut-off and ESS is above the cut-off for all group level parameters. Since the problematic group level parameter is tau alpha WD, a variance parameter that is not used for inference, and since it's R-hat value is still well below the conventional 1.05 cut-off. I think it is safe to proceed regardless. 
+We also have 3 participant level parameters with suboptimal but below conventionnal cut-off R-hat: alpha and beta for participant 63 and task WD (probably causing the suboptimality in the estimation of tau alpha WD; these two paramaters also have low ESS) and beta for participant 38 and task HP. Again, I believe it is safe to proceed regardless.   
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+GU_a<-readRDS('results/loo/ageing/Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_a<-readRDS('results/loo/ageing/Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_a<-readRDS('results/loo/ageing/Quick_constrained_threshold_ageing_GLN.rds')
+
+GU_cd_a<-readRDS('results/loo/ageing/cdt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_cd_a<-readRDS('results/loo/ageing/cdt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_cd_a<-readRDS('results/loo/ageing/cdt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_wd_a<-readRDS('results/loo/ageing/wdt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_wd_a<-readRDS('results/loo/ageing/wdt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_wd_a<-readRDS('results/loo/ageing/wdt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_cp_a<-readRDS('results/loo/ageing/cpt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_cp_a<-readRDS('results/loo/ageing/cpt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_cp_a<-readRDS('results/loo/ageing/cpt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_hp_a<-readRDS('results/loo/ageing/hpt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_hp_a<-readRDS('results/loo/ageing/hpt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_hp_a<-readRDS('results/loo/ageing/hpt_Quick_constrained_threshold_ageing_GLN.rds')
+
+print('Base LOO')
+print('Joint models')
+pareto_k_table(GU_a)
+pareto_k_table(GC_a)
+pareto_k_table(QC_a)
+print('CDT models')
+pareto_k_table(GU_cd_a)
+pareto_k_table(GC_cd_a)
+pareto_k_table(QC_cd_a)
+print('WDT models')
+pareto_k_table(GU_wd_a)
+pareto_k_table(GC_wd_a)
+pareto_k_table(QC_wd_a)
+print('CPT models')
+pareto_k_table(GU_cp_a)
+pareto_k_table(GC_cp_a)
+pareto_k_table(QC_cp_a)
+print('HPT models')
+pareto_k_table(GU_hp_a)
+pareto_k_table(GC_hp_a)
+pareto_k_table(QC_hp_a)
+```
+
+Pareto k diagnostics are consistently bad for base approximate leave one out cross validation (LOO-CV).
+Moment matching might fix the issue.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+GU_a_mm<-readRDS('results/loo/ageing/MM_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_a_mm<-readRDS('results/loo/ageing/MM_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_a_mm<-readRDS('results/loo/ageing/MM_Quick_constrained_threshold_ageing_GLN.rds')
+
+GU_cd_a_mm<-readRDS('results/loo/ageing/MM_cdt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_cd_a_mm<-readRDS('results/loo/ageing/MM_cdt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_cd_a_mm<-readRDS('results/loo/ageing/MM_cdt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_wd_a_mm<-readRDS('results/loo/ageing/MM_wdt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_wd_a_mm<-readRDS('results/loo/ageing/MM_wdt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_wd_a_mm<-readRDS('results/loo/ageing/MM_wdt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_cp_a_mm<-readRDS('results/loo/ageing/MM_cpt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_cp_a_mm<-readRDS('results/loo/ageing/MM_cpt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_cp_a_mm<-readRDS('results/loo/ageing/MM_cpt_Quick_constrained_threshold_ageing_GLN.rds')
+GU_hp_a_mm<-readRDS('results/loo/ageing/MM_hpt_Gaussian_unconstrained_threshold_ageing_GLN.rds')
+GC_hp_a_mm<-readRDS('results/loo/ageing/MM_hpt_Gaussian_constrained_threshold_ageing_GLN.rds')
+QC_hp_a_mm<-readRDS('results/loo/ageing/MM_hpt_Quick_constrained_threshold_ageing_GLN.rds')
+
+print('Joint models')
+pareto_k_table(GU_a_mm)
+pareto_k_table(GC_a_mm)
+pareto_k_table(QC_a_mm)
+print('CDT models')
+pareto_k_table(GU_cd_a_mm)
+pareto_k_table(GC_cd_a_mm)
+pareto_k_table(QC_cd_a_mm)
+print('WDT models')
+pareto_k_table(GU_wd_a_mm)
+pareto_k_table(GC_wd_a_mm)
+pareto_k_table(QC_wd_a_mm)
+print('CPT models')
+pareto_k_table(GU_cp_a_mm)
+pareto_k_table(GC_cp_a_mm)
+pareto_k_table(QC_cp_a_mm)
+print('HPT models')
+pareto_k_table(GU_hp_a_mm)
+pareto_k_table(GC_hp_a_mm)
+pareto_k_table(QC_hp_a_mm)
+```
+
+Moment matching leads to a clear improvement of the diagnostics, with only one bad pareto-k for one of the joint models all tasks and none of the joint models task specific.
+This is still not perfect and we shuld therefore exert caution when it comes to interpretation of model comparison, as this might lead to an underestimation of the ELPD SE.
+
+## Model comparison
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+mc_all_a<-
+  loo_compare(list(GU=GU_a_mm,GC=GC_a_mm,QC=QC_a_mm))
+model<-
+  row.names(mc_all_a)
+mc_all_a<-as.tibble(mc_all_a) %>% 
+  select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_all_a$model<-model
+mc_all_a$comparison<-'Full'
+
+mc_cd_a<-
+  loo_compare(list(GU=GU_cd_a_mm,GC=GC_cd_a_mm,QC=QC_cd_a_mm)) 
+model<-row.names(mc_cd_a)
+mc_cd_a<-as.tibble(mc_cd_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_cd_a$model<-model
+mc_cd_a$comparison<-'CD'
+
+mc_wd_a<-
+  loo_compare(list(GU=GU_wd_a_mm,GC=GC_wd_a_mm,QC=QC_wd_a_mm)) 
+model<-row.names(mc_wd_a)
+mc_wd_a<-as.tibble(mc_wd_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_wd_a$model<-model
+mc_wd_a$comparison<-'WD'
+
+mc_cp_a<-
+  loo_compare(list(GU=GU_cp_a_mm,GC=GC_cp_a_mm,QC=QC_cp_a_mm)) 
+model<-row.names(mc_cp_a)
+mc_cp_a<-as.tibble(mc_cp_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_cp_a$model<-model
+mc_cp_a$comparison<-'CP'
+
+mc_hp_a<-
+  loo_compare(list(GU=GU_hp_a_mm,GC=GC_hp_a_mm,QC=QC_hp_a_mm)) 
+model<-row.names(mc_hp_a)
+mc_hp_a<-as.tibble(mc_hp_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_hp_a$model<-model
+mc_hp_a$comparison<-'HP'
+
+mc_a<-
+  full_join(mc_all_a,mc_cd_a) %>% 
+  full_join(mc_wd_a) %>% 
+  full_join(mc_cp_a) %>% 
+  full_join(mc_hp_a) %>% 
+  mutate(comparison=factor(comparison,c('Full','CD','WD','CP','HP')))
+
+mc_a %>% 
+  ggplot()+
+  geom_pointrange(
+    aes(
+      x=model,
+      y=elpd_diff,
+      ymin = elpd_diff-2*se_diff,
+      ymax = elpd_diff+2*se_diff,
+      color=comparison
+      ),
+    position = position_dodge(width = .2)
+  )+
+  geom_hline(aes(yintercept = 0),color='grey',linetype='dotted')+
+  geom_hline(aes(yintercept = -4),color='grey',linetype='dotted')+
+  theme_minimal()+
+  labs(
+    title = 'Comparison of ageing only models',
+    x='Model',
+    y='Delta ELPD',
+    color='Task'
+  )+
+  facet_grid(cols=vars(comparison))+
+  scale_color_manual(
+    values=c('black','#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('All','CD','WD','CP','HP')
+  )
+```
+
+The model comparison results indicate that we cannot really distinguish between the different models.
+The bad Pareto-k diagnostics are therefore not a concern.
+As per the pre-registered procedure, we then move on to interpret the best model, even though it is not significantly better than the others.
+
+## Model interpretation
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+fit_a<-readRDS("results/fits/ageing/Gaussian_unconstrained_threshold_ageing_GLN.rds")
+
+age_effect_a<-
+  fit_a$draws(variables = paste0('mu[',11:18,']'),format = 'df') %>% 
+  rename(
+    CD_T=`mu[11]`,
+    WD_T=`mu[12]`,
+    CP_T=`mu[13]`,
+    HP_T=`mu[14]`,
+    CD_S=`mu[15]`,
+    WD_S=`mu[16]`,
+    CP_S=`mu[17]`,
+    HP_S=`mu[18]`
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(task=factor(task,c('CD','WD','CP','HP')))
+```
+### Effect of age
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+P_A_A_T<-
+  age_effect_a %>%
+  filter(parameter=='T') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value<0),3)))
+
+P_A_A_S<-
+  age_effect_a %>%
+  filter(parameter=='S') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value>0),3)))
+
+age_effect_a %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data = P_A_A_T,
+    aes(x = 0.1, y = 55, label = paste0("P(K<0)=", p)),
+    inherit.aes = FALSE,
+    hjust = 'left', size = 3
+  )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of age on the threshold - ageing only models',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())
+
+age_effect_a %>%
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data = P_A_A_S,
+    aes(x = -0.04,y=95, label = paste0("P(K>0)=", p)),
+    inherit.aes = FALSE,
+    hjust = 'left', size = 3
+  ) +  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of age on the slope - ageing only models',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())
+```
+
+These results indicate a significant increase of cold detection, warm detection and cold pain thresholds (less sensitivity) as well as a decrease of the cold detection slope (more noise/less precision) with age.
+We can also visualize the difference between the prior and posterior distributions for the different effects.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+M<-10^5
+age_effect_priors<-
+  tibble(
+    CD_T=rnorm(M,0,0.54/60),
+    WD_T=rnorm(M,0,1.90/60),
+    CP_T=rnorm(M,0,7.39/60),
+    HP_T=rnorm(M,0,2.67/60),
+    CD_S=rnorm(M,0,1.11/60),
+    WD_S=rnorm(M,0,0.73/60),
+    CP_S=rnorm(M,0,0.50/60),
+    HP_S=rnorm(M,0,0.79/60),
+    .iteration=1:M
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(
+    task=factor(task,c('CD','WD','CP','HP')),
+    distribution='prior'
+    )
+
+AE_a<-
+  age_effect_a %>% 
+  mutate(distribution='posterior') %>% 
+  full_join(age_effect_priors)
+
+
+
+dens<-
+  AE_a %>%
+  group_by(task,parameter,distribution) %>% 
+  summarise(density=density_at_zero(value)) 
+BF<-
+  dens%>% 
+  pivot_wider(names_from = distribution,values_from = density) %>% 
+  mutate(BF01=sprintf("%.2f",round(posterior/prior,2)))
+
+AE_a %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+    data = dens %>% filter(parameter == "T"),
+    aes(x = 0, y = density, shape = distribution,color=task),
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = BF %>% filter(parameter == "T"),
+    aes(x = 0.1, y = 45, label = paste0("BF01=", BF01)),
+    inherit.aes = FALSE,
+    hjust = 'left', size = 3
+  ) +
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of age on the threshold - ageing only models',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-.2,.4))
+
+AE_a %>%
+  full_join(dens) %>% 
+  full_join(BF) %>% 
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+    data = dens %>% filter(parameter == "S"),
+    aes(x = 0, y = density, shape = distribution,color=task),
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = BF %>% filter(parameter == "S"),
+    aes(x = -0.06,y=80, label = paste0("BF01=", BF01)),
+    inherit.aes = FALSE,
+    hjust = 'left', size = 3
+  ) +
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of age on the slope - ageing only model',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-.07,.04))
+```
+
+The Bayes Factors give similar results as the tests based on posterior probabilities.
+On top of that they also indicate substantial evidence against an effect of age on the heat pain threshold.
+
+### Group level psychometric functions
+
+Finally, we can also visualize the group-mean PF at two different ages.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+predictors<-expand_grid(x=seq(0.1,30,.1),.draw=1:8000,age=c(20,80))
+
+pf_ageing<-fit_a$draws(variables = 'mu',format='df')%>%
+  rename(
+    cd_ti=`mu[1]`,
+    wd_ti=`mu[2]`,
+    cp_ti=`mu[3]`,
+    hp_ti=`mu[4]`,
+    cd_si=`mu[5]`,
+    wd_si=`mu[6]`,
+    cp_si=`mu[7]`,
+    hp_si=`mu[8]`,
+    g=`mu[9]`,
+    l=`mu[10]`,
+    cd_ts=`mu[11]`,
+    wd_ts=`mu[12]`,
+    cp_ts=`mu[13]`,
+    hp_ts=`mu[14]`,
+    cd_ss=`mu[15]`,
+    wd_ss=`mu[16]`,
+    cp_ss=`mu[17]`,
+    hp_ss=`mu[18]`,
+  ) %>% 
+  full_join(predictors) %>% 
+  mutate(
+    ra=age-20,
+    guess=inv_logit(g),
+    lapse=inv_logit(l),
+    cdt=cd_ti+cd_ts*ra,
+    wdt=wd_ti+wd_ts*ra,
+    cpt=cp_ti+cp_ts*ra,
+    hpt=hp_ti+hp_ts*ra,
+    cds=exp(cd_si+cd_ss*ra),
+    wds=exp(wd_si+wd_ss*ra),
+    cps=exp(cp_si+cp_ss*ra),
+    hps=exp(hp_si+hp_ss*ra),
+    CD_p=guess+(1-guess-lapse)*pnorm(x,cdt,1/cds),
+    WD_p=guess+(1-guess-lapse)*pnorm(x,wdt,1/wds),
+    CP_p=guess+(1-guess-lapse)*pnorm(x,cpt,1/cps),
+    HP_p=guess+(1-guess-lapse)*pnorm(x,hpt,1/hps),
+    ) %>%
+  pivot_longer(
+    cols = ends_with("_p"),
+    names_to = "task",
+    names_pattern = "(.*)_p",
+    values_to = "p"
+  ) %>% 
+  mutate(task=factor(task,c('CD','WD','CP','HP'))) %>% 
+  group_by(x,age,task) %>% 
+  summarise(
+    m=median(p),
+    lb_60=quantile(p,0.20),    
+    ub_60=quantile(p,0.80),
+    lb_80=quantile(p,0.10),    
+    ub_80=quantile(p,0.90),
+    lb_90=quantile(p,0.05),    
+    ub_90=quantile(p,0.95),
+    lb_95=quantile(p,0.025),
+    ub_95=quantile(p,0.975)
+    ) %>% 
+  pivot_longer(
+    cols = matches("(lb|ub)_\\d+"),
+    names_to = c("bound", "ci"), 
+    names_pattern = "(lb|ub)_(\\d+)", 
+    values_to = "value") %>% 
+  pivot_wider(
+      names_from = "bound",
+      values_from = "value"
+  ) %>% 
+  filter((task=='CD'&x<10)|(task=='WD'&x<15)|task=='CP'|(task=='HP'&x<20))
+
+pf_ageing$x[pf_ageing$task=='CD']<-30-pf_ageing$x[pf_ageing$task=='CD']
+pf_ageing$x[pf_ageing$task=='WD']<-30+pf_ageing$x[pf_ageing$task=='WD']
+pf_ageing$x[pf_ageing$task=='CP']<-30-pf_ageing$x[pf_ageing$task=='CP']
+pf_ageing$x[pf_ageing$task=='HP']<-30+pf_ageing$x[pf_ageing$task=='HP']
+
+pf_ageing %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=30),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci,fill=task))+
+  geom_line(aes(x=x,y=m,color=task))+
+  theme_minimal()+
+  facet_grid(age~task,scales = 'free_x')+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    fill='Task',
+    color='Task',
+    alpha='CI',
+    title='Group mean psychometric functions at age 20 and 80'
+      )+
+  theme(
+    strip.text.x = element_blank(),
+    strip.background.x = element_blank(),
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.box = "horizontal"
+  )
+```
+
+## Individual fits control
+
+As a sanity check, we should also check that the model fits the data for the different participants and tasks.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+predictors<-expand_grid(x=seq(0.1,30,.1),.draw=1:8000)
+
+draws_a<-fit_a$draws(variables = c('alpha','beta','gamma','lambda'),format='df')%>%
+  pivot_longer(!starts_with('.'), names_to = "param", values_to = "value")
+
+draws_a_task <- draws_a %>%
+  filter(str_detect(param, "alpha|beta")) %>%
+  extract(param, into = c("param", "task", "participant"),
+          regex = "([a-z]+)\\[([^,]+),([^\\]]+)\\]") %>%
+  pivot_wider(names_from = param, values_from = value)
+
+draws_a_nontask <- draws_a %>%
+  filter(str_detect(param, "gamma|lambda")) %>%
+  extract(param, into = c("param", "participant"),
+          regex = "([a-z]+)\\[([^\\]]+)\\]") %>%
+  pivot_wider(names_from = param, values_from = value)
+
+# Join
+draws_a <- draws_a_task %>%
+  full_join(draws_a_nontask) %>% 
+  mutate(participant= as.integer(participant)) %>%
+  arrange(participant) %>% 
+  full_join(predictors) %>% 
+  mutate(p=gamma+(1-gamma-lambda)*pnorm(x,alpha,1/beta)) %>% 
+  group_by(x,participant,task) %>% 
+  summarise(
+    m=median(p),
+    lb_60=quantile(p,0.20),    
+    ub_60=quantile(p,0.80),
+    lb_80=quantile(p,0.10),    
+    ub_80=quantile(p,0.90),
+    lb_90=quantile(p,0.05),    
+    ub_90=quantile(p,0.95),
+    lb_95=quantile(p,0.025),
+    ub_95=quantile(p,0.975)
+    ) %>% 
+  pivot_longer(
+    cols = matches("(lb|ub)_\\d+"),
+    names_to = c("bound", "ci"), 
+    names_pattern = "(lb|ub)_(\\d+)", 
+    values_to = "value") %>% 
+  pivot_wider(
+      names_from = "bound",
+      values_from = "value"
+  )
+draws_a$task[draws_a$task=='1']<-'CD'
+draws_a$task[draws_a$task=='2']<-'WD'
+draws_a$task[draws_a$task=='3']<-'CP'
+draws_a$task[draws_a$task=='4']<-'HP'
+
+d <- read_csv("data/aggregated_results.csv") %>% 
+  filter(
+    recording_deviates_from_target==0,
+    recording_deviates_from_mean==0,
+    !is.na(response),
+    !subject%in%c(2003,2007,2021,3006,3009,3012,3017,3019,4003,4025),
+    subject<5000
+  ) %>% 
+  mutate(recorded_intensity=round(recorded_intensity,1)) %>% 
+  group_by(recorded_intensity,subject,condition) %>% 
+  summarise(prop=mean(response),n=sum(response>-1)) %>% 
+  arrange(subject)
+
+d$task[d$condition==1]<-'CD'
+d$task[d$condition==2]<-'WD'
+d$task[d$condition==3]<-'CP'
+d$task[d$condition==4]<-'HP'
+
+participant<-unique(d$subject)
+
+for(pdx in 1:length(unique(d$subject))){
+  d$subject[d$subject==participant[pdx]]<-pdx
+}
+d<-d %>% rename(participant=subject,x=recorded_intensity)
+
+draws_a %>% 
+  filter(participant<41,task=='CD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#56B4E9')+
+  geom_line(aes(x=x,y=m),color='#56B4E9')+
+  geom_point(data=d %>%filter(participant<41,task=='CD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant>40,task=='CD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#56B4E9')+
+  geom_line(aes(x=x,y=m),color='#56B4E9')+
+  geom_point(data=d %>%filter(participant>40,task=='CD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant<41,task=='CP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#0072B2')+
+  geom_line(aes(x=x,y=m),color='#0072B2')+
+  geom_point(data=d %>%filter(participant<41,task=='CP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant>40,task=='CP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#0072B2')+
+  geom_line(aes(x=x,y=m),color='#0072B2')+
+  geom_point(data=d %>%filter(participant>40,task=='CP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant<41,task=='WD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#E69F00')+
+  geom_line(aes(x=x,y=m),color='#E69F00')+
+  geom_point(data=d %>%filter(participant<41,task=='WD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant>40,task=='WD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#E69F00')+
+  geom_line(aes(x=x,y=m),color='#E69F00')+
+  geom_point(data=d %>%filter(participant>40,task=='WD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant<41,task=='HP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#D55E00')+
+  geom_line(aes(x=x,y=m),color='#D55E00')+
+  geom_point(data=d %>%filter(participant<41,task=='HP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_a %>% 
+  filter(participant>40,task=='HP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#D55E00')+
+  geom_line(aes(x=x,y=m),color='#D55E00')+
+  geom_point(data=d %>%filter(participant>40,task=='HP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+```
+
+# Ageing and neuropathy models
+
+## Diagnostics
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy.rds",
+  "results/fits/ageing_and_neuropathy/Gaussian_constrained_threshold_ageing_and_neuropathy.rds",
+  "results/fits/ageing_and_neuropathy/Quick_constrained_threshold_ageing_and_neuropathy.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+Diagnostics are quite bad across the board: divergent transitions, lots of max treedepth... Let's simplify the model like we did for the ageing only model.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN.rds",
+  "results/fits/ageing_and_neuropathy/Gaussian_constrained_threshold_ageing_and_neuropathy_GLN.rds",
+  "results/fits/ageing_and_neuropathy/Quick_constrained_threshold_ageing_and_neuropathy_GLN.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+This led to some improvements but there remains post-warm-up divergent transitions for the Quick model.
+We can further simplify the models by dropping the age:status interaction.
+The motivation for this is that we don't have enough patients/enough variability in the age of patients to be able to properly estimate a different in the parameter-age slope in that population vs the control population.
+This constitutes a deviation from the pre-registration.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI.rds",
+  "results/fits/ageing_and_neuropathy/Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI.rds",
+  "results/fits/ageing_and_neuropathy/Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+While most pathologies were eliminated by model simplification, the post-warm-up divergent transitions are still present for the Quick model.
+A last simplification we can attempt is to also drop the random effect on patient status.
+This random effect effectively allowed for non-homoscedasticity between the groups (patients vs controls).
+Even though there is theoretical arguments for non-homoscedasticity, our sample is most likely insufficently large to properly estimate the difference of variance between the groups and this might lead to the bad sampler diagnostic we are seeing.
+Of note, homoscedasticity is usually assumed in statistical models so this change makes our models more aligned with standard practice, not less.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+model_names<-c(
+  "results/fits/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds",
+  "results/fits/ageing_and_neuropathy/Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds",
+  "results/fits/ageing_and_neuropathy/Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds"
+)
+iter=8000
+for(m in 1:3){
+  fit<-readRDS(model_names[m])
+  print(model_names[m])
+  print(fit$diagnostic_summary())
+
+  s<-fit$summary(variables = c('mu','tau'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('GLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('GLP -',model_names[m])))
+
+  s<-fit$summary(variables = c('alpha','beta'))
+  print(mcmc_rhat(s$rhat)+labs(title=paste('PLP -',model_names[m]))+geom_vline(aes(xintercept = 1.01))+labs(title=paste('GLP -',model_names[m])))
+  print(mcmc_neff(s$ess_bulk/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+  print(mcmc_neff(s$ess_tail/iter)+geom_vline(aes(xintercept = 400/iter))+labs(title=paste('PLP -',model_names[m])))
+}
+```
+
+Diagnostics are now good for the Quick and satisfying for the Gaussian models even though not perfect.
+The group level parameters (what we care about as we conduct inference on them) are however close to the defined cut-offs and we will proceed.
+
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+GU_an<-readRDS('results/loo/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_an<-readRDS('results/loo/ageing_and_neuropathy/Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_an<-readRDS('results/loo/ageing_and_neuropathy/Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+
+GU_cd_an<-readRDS('results/loo/ageing_and_neuropathy/cdt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_cd_an<-readRDS('results/loo/ageing_and_neuropathy/cdt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_cd_an<-readRDS('results/loo/ageing_and_neuropathy/cdt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_wd_an<-readRDS('results/loo/ageing_and_neuropathy/wdt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_wd_an<-readRDS('results/loo/ageing_and_neuropathy/wdt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_wd_an<-readRDS('results/loo/ageing_and_neuropathy/wdt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_cp_an<-readRDS('results/loo/ageing_and_neuropathy/cpt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_cp_an<-readRDS('results/loo/ageing_and_neuropathy/cpt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_cp_an<-readRDS('results/loo/ageing_and_neuropathy/cpt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_hp_an<-readRDS('results/loo/ageing_and_neuropathy/hpt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_hp_an<-readRDS('results/loo/ageing_and_neuropathy/hpt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_hp_an<-readRDS('results/loo/ageing_and_neuropathy/hpt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+
+print('Base LOO')
+print('Joint models')
+pareto_k_table(GU_an)
+pareto_k_table(GC_an)
+pareto_k_table(QC_an)
+print('CDT models')
+pareto_k_table(GU_cd_an)
+pareto_k_table(GC_cd_an)
+pareto_k_table(QC_cd_an)
+print('WDT models')
+pareto_k_table(GU_wd_an)
+pareto_k_table(GC_wd_an)
+pareto_k_table(QC_wd_an)
+print('CPT models')
+pareto_k_table(GU_cp_an)
+pareto_k_table(GC_cp_an)
+pareto_k_table(QC_cp_an)
+print('HPT models')
+pareto_k_table(GU_hp_an)
+pareto_k_table(GC_hp_an)
+pareto_k_table(QC_hp_an)
+```
+
+Pareto k diagnostics are consistently bad for base approximate leave one out cross validation (LOO-CV).
+Moment matching might fix the issue.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+GU_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+
+GU_cd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cdt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_cd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cdt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_cd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cdt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_wd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_wdt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_wd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_wdt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_wd_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_wdt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_cp_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cpt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_cp_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cpt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_cp_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_cpt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GU_hp_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_hpt_Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+GC_hp_an_mm<-readRDS('results/loo/ageing_and_neuropathy/MM_hpt_Gaussian_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+QC_hp_an_mm<-readRDS('ageing_and_neuropathy/MM_hpt_Quick_constrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds')
+
+print('Joint models')
+print('GU')
+pareto_k_table(GU_an_mm)
+print('GC')
+pareto_k_table(GC_an_mm)
+print('QC')
+pareto_k_table(QC_an_mm)
+print('CDT models')
+print('GU')
+pareto_k_table(GU_cd_an_mm)
+print('GC')
+pareto_k_table(GC_cd_an_mm)
+print('QC')
+pareto_k_table(QC_cd_an_mm)
+print('WDT models')
+print('GU')
+pareto_k_table(GU_wd_an_mm)
+print('GC')
+pareto_k_table(GC_wd_an_mm)
+print('QC')
+pareto_k_table(QC_wd_an_mm)
+print('CPT models')
+print('GU')
+pareto_k_table(GU_cp_an_mm)
+print('GC')
+pareto_k_table(GC_cp_an_mm)
+print('QC')
+pareto_k_table(QC_cp_an_mm)
+print('HPT models')
+print('GU')
+pareto_k_table(GU_hp_an_mm)
+print('GC')
+pareto_k_table(GC_hp_an_mm)
+print('QC')
+pareto_k_table(QC_hp_an_mm)
+```
+
+Moment matching fixed most of the bad diagnostics, with only a few pareto-k remaining forsome of the models.
+As before, we should remin cautious as this could lead to the underestimation of the ELPD SE.
+
+## Model comparison
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+mc_all_a<-
+  loo_compare(list(GU=GU_an_mm,GC=GC_an_mm,QC=QC_an_mm))
+model<-
+  row.names(mc_all_a)
+mc_all_a<-as.tibble(mc_all_a) %>% 
+  select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_all_a$model<-model
+mc_all_a$comparison<-'Full'
+
+mc_cd_a<-
+  loo_compare(list(GU=GU_cd_an_mm,GC=GC_cd_an_mm,QC=QC_cd_an_mm)) 
+model<-row.names(mc_cd_a)
+mc_cd_a<-as.tibble(mc_cd_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_cd_a$model<-model
+mc_cd_a$comparison<-'CD'
+
+mc_wd_a<-
+  loo_compare(list(GU=GU_wd_an_mm,GC=GC_wd_an_mm,QC=QC_wd_an_mm)) 
+model<-row.names(mc_wd_a)
+mc_wd_a<-as.tibble(mc_wd_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_wd_a$model<-model
+mc_wd_a$comparison<-'WD'
+
+mc_cp_a<-
+  loo_compare(list(GU=GU_cp_an_mm,GC=GC_cp_an_mm,QC=QC_cp_an_mm)) 
+model<-row.names(mc_cp_a)
+mc_cp_a<-as.tibble(mc_cp_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_cp_a$model<-model
+mc_cp_a$comparison<-'CP'
+
+mc_hp_a<-
+  loo_compare(list(GU=GU_hp_an_mm,GC=GC_hp_an_mm,QC=QC_hp_an_mm)) 
+model<-row.names(mc_hp_a)
+mc_hp_a<-as.tibble(mc_hp_a) %>% 
+    select(elpd_diff,se_diff) %>% 
+  mutate(
+    elpd_diff=as.numeric(elpd_diff),
+    se_diff=as.numeric(se_diff)
+  )
+mc_hp_a$model<-model
+mc_hp_a$comparison<-'HP'
+
+mc_a<-
+  full_join(mc_all_a,mc_cd_a) %>% 
+  full_join(mc_wd_a) %>% 
+  full_join(mc_cp_a) %>% 
+  full_join(mc_hp_a) %>% 
+  mutate(comparison=factor(comparison,c('Full','CD','WD','CP','HP')))
+
+mc_a %>% 
+  ggplot()+
+  geom_pointrange(
+    aes(
+      x=model,
+      y=elpd_diff,
+      ymin = elpd_diff-2*se_diff,
+      ymax = elpd_diff+2*se_diff,
+      color=comparison
+      ),
+    position = position_dodge(width = .2)
+  )+
+  geom_hline(aes(yintercept = 0),color='grey',linetype='dotted')+
+  geom_hline(aes(yintercept = -4),color='grey',linetype='dotted')+
+  theme_minimal()+
+  labs(
+    title = 'Comparison of ageing and neuropathy models',
+    x='Model',
+    y='Delta ELPD',
+    color='Task'
+  )+
+  facet_grid(cols=vars(comparison))+
+  scale_color_manual(
+    values=c('black','#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('All','CD','WD','CP','HP')
+  )
+```
+
+The model comparison results are somewhat more clear cut for these models.
+However, we should be cautious when interpreting the SE as they might be underestimated since the pareto-k diagnostics were not good.
+Following the pre-registered procedure, we move on to interpret the Gaussian unconstrained model.
+
+## Model interpretation
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+fit_an<-readRDS("results/fits/ageing_and_neuropathy/Gaussian_unconstrained_threshold_ageing_and_neuropathy_GLN_NI_H.rds")
+
+neuropathy_effect_an<-
+  fit_an$draws(variables = paste0('mu[',11:18,']'),format = 'df') %>% 
+  rename(
+    CD_T=`mu[11]`,
+    WD_T=`mu[12]`,
+    CP_T=`mu[13]`,
+    HP_T=`mu[14]`,
+    CD_S=`mu[15]`,
+    WD_S=`mu[16]`,
+    CP_S=`mu[17]`,
+    HP_S=`mu[18]`
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(task=factor(task,c('CD','WD','CP','HP')))
+
+age_effect_an<-
+  fit_an$draws(variables = paste0('mu[',19:26,']'),format = 'df') %>% 
+  rename(
+    CD_T=`mu[19]`,
+    WD_T=`mu[20]`,
+    CP_T=`mu[21]`,
+    HP_T=`mu[22]`,
+    CD_S=`mu[23]`,
+    WD_S=`mu[24]`,
+    CP_S=`mu[25]`,
+    HP_S=`mu[26]`
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(task=factor(task,c('CD','WD','CP','HP')))
+```
+
+### Effect of age - confirmation
+
+Even though the pre-registration plans that we assess the effect of age in the ageing only models, we can still check that the results are consistent in this model.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+P_AN_A_T<-
+  age_effect_an %>%
+  filter(parameter=='T') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value<0),3)))
+
+P_AN_A_S<-
+  age_effect_an %>%
+  filter(parameter=='S') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value>0),3)))
+
+age_effect_an %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data=P_AN_A_T,
+    aes(x=0.05,y=60,label=paste0('P(K<0)=',p)),hjust='left', fontface = "plain",size=3
+    )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of age on the threshold - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())
+
+age_effect_an %>%
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data=P_AN_A_S,
+    aes(x=-0.08,y=100,label=paste0('P(K>0)=',p)),hjust='left', fontface = "plain",size=3)+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of age on the slope - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())
+```
+
+These results indicate a significant increase of cold detection, warm detection and cold pain thresholds (less sensitivity) as well as a decrease of the cold detection slope (more noise/less precision) with age.
+This is exactly the same interpretation as for the ageing only model.
+We can also visualize the difference between the prior and posterior distributions for the different effects.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+M<-10^5
+age_effect_priors<-
+  tibble(
+    CD_T=rnorm(M,0,0.54/60),
+    WD_T=rnorm(M,0,1.90/60),
+    CP_T=rnorm(M,0,7.39/60),
+    HP_T=rnorm(M,0,2.67/60),
+    CD_S=rnorm(M,0,1.11/60),
+    WD_S=rnorm(M,0,0.73/60),
+    CP_S=rnorm(M,0,0.50/60),
+    HP_S=rnorm(M,0,0.79/60),
+    .iteration=1:M
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(
+    task=factor(task,c('CD','WD','CP','HP')),
+    distribution='prior'
+    )
+
+AE_an<-
+  age_effect_an %>% 
+  mutate(distribution='posterior') %>% 
+  full_join(age_effect_priors)
+
+dens<-
+  AE_an %>%
+  group_by(task,parameter,distribution) %>% 
+  summarise(density=density_at_zero(value)) 
+BF<-
+  dens%>% 
+  pivot_wider(names_from = distribution,values_from = density) %>% 
+  mutate(BF01=sprintf("%.2f",round(posterior/prior,2)))
+
+AE_an %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+            data=dens %>% filter(parameter=='T'),
+            aes(x=0,y=density,color=task,shape=distribution)
+            )+
+  geom_text(
+    data=BF %>% filter(parameter=='T'),
+    aes(x=0,y=70,label=paste0('BF01=',BF01)),hjust='left', fontface = "plain",size=3)+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of age on the threshold - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-.2,.3))
+
+AE_an %>%
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+        data=dens %>% filter(parameter=='S'),
+        aes(x=0,y=density,color=task,shape=distribution)
+        )+
+  geom_text(
+        data=BF %>% filter(parameter=='S'),
+        aes(x=-0.05,y=80,label=paste0('BF01=',BF01)),hjust='left', fontface = "plain",size=3
+        )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of age on the slope - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-.05,.04))
+```
+Again, we get the same effects when looking at Bayes Factors. However, unlike for the ageing only model we do not have "significant" evidence against an effect of age on the HPT.
+
+### Effect of neuropathy
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+P_AN_N_T<-
+  neuropathy_effect_an %>%
+  filter(parameter=='T') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value<0),3)))
+
+P_AN_N_S<-
+  neuropathy_effect_an %>%
+  filter(parameter=='S') %>% 
+  group_by(task) %>% 
+  summarise(p=sprintf("%.3f",round(mean(value>0),3)))
+
+neuropathy_effect_an %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data=P_AN_N_T,
+    aes(x=1,y=1.2,label=paste0('P(K<0)=',p)),hjust='left', fontface = "plain",size=3
+    )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of neuropathy on the threshold - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())
+
+neuropathy_effect_an %>%
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      fill=task
+      )
+    )+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_text(
+    data=P_AN_N_S,
+    aes(x=-1.5,y=2,label=paste0('P(K>0)=',p)),hjust='left', fontface = "plain",size=3
+    )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  labs(
+    title = 'Effect of neuropathy on the slope - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+    fill='Task'
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_classic()+
+  theme(strip.text.x = element_blank())
+```
+These results indicate that patients with neuropathy have significantly increased cold and warm detection thresholds (less sensitive) as well as a significantly decreased cold detection slope (less precision/more noise), when compared to age matched controls.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+M<-10^5
+neuropathy_effect_priors<-
+  tibble(
+    CD_T=rnorm(M,0,0.54),
+    WD_T=rnorm(M,0,1.90),
+    CP_T=rnorm(M,0,7.39),
+    HP_T=rnorm(M,0,2.67),
+    CD_S=rnorm(M,0,1.11),
+    WD_S=rnorm(M,0,0.73),
+    CP_S=rnorm(M,0,0.50),
+    HP_S=rnorm(M,0,0.79),
+    .iteration=1:M
+    ) %>% 
+   pivot_longer(
+    cols = c(CD_T, WD_T, CP_T, HP_T, CD_S, WD_S, CP_S, HP_S),
+    names_to = c("task", "parameter"),
+    names_sep = "_",
+    values_to = "value"
+  ) %>% 
+  mutate(
+    task=factor(task,c('CD','WD','CP','HP')),
+    distribution='prior'
+    )
+
+NE_an<-
+  neuropathy_effect_an %>% 
+  mutate(distribution='posterior') %>% 
+  full_join(neuropathy_effect_priors)
+
+
+dens<-
+  NE_an %>%
+  group_by(task,parameter,distribution) %>% 
+  summarise(density=density_at_zero(value)) 
+BF<-
+  dens%>% 
+  pivot_wider(names_from = distribution,values_from = density) %>% 
+  mutate(BF01=sprintf("%.2f",round(posterior/prior,2)))
+
+NE_an %>%
+  filter(parameter=='T') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+        data=dens %>% filter(parameter=='T'),
+        aes(x=0,y=density,color=task,shape=distribution)
+        )+
+  geom_text(
+        data=BF %>% filter(parameter=='T'),
+        aes(x=1,y=.9,label=paste0('BF01=',BF01)),hjust='left', fontface = "plain",size=3
+        )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of neuropathy on the threshold - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-5,10))
+
+NE_an %>%
+  filter(parameter=='S') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept = 0),linetype='dashed',color='grey')+
+  geom_density(
+    aes(
+      x=value,
+      color=task,
+      linetype=distribution
+      )
+    )+
+  geom_point(
+    data=dens %>% filter(parameter=='S'),
+    aes(x=0,y=density,color=task,shape=distribution)
+    )+
+  geom_text(
+        data=BF %>% filter(parameter=='S'),
+        aes(x=-3,y=1.7,label=paste0('BF01=',BF01)),hjust='left', fontface = "plain",size=3
+        )+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+  
+  scale_shape_manual(values = c(16,1))+
+  labs(
+    title = 'Effect of neuropathy on the slope - age and neuropathy model',
+    x='',
+    y='Density',
+    color='Task',
+  )+
+  facet_wrap(.~task,ncol =4)+
+  theme_minimal()+
+  theme(strip.text.x = element_blank())+
+  coord_cartesian(xlim = c(-3,2))
+```
+
+The Bayes Factors give similar results as the tests based on posterior probabilities, except that the effect on the cold detection slope is just below cut-off.
+On top of that they also indicate substantial evidence against an effect of neuropathy on the heat pain slope.
+
+### Group level psychometric functions
+Finally, we can also visualize the group-mean PF for the two groups, at a fixed age (here we chose 50 which is in the middle of our age range).
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+predictors<-expand_grid(x=seq(0.1,30,.1),.draw=1:8000,age=50,status=c(0,1))
+
+pf_neuropathy<-fit_an$draws(variables = 'mu',format='df')%>%
+  rename(
+    cd_ti=`mu[1]`,
+    wd_ti=`mu[2]`,
+    cp_ti=`mu[3]`,
+    hp_ti=`mu[4]`,
+    cd_si=`mu[5]`,
+    wd_si=`mu[6]`,
+    cp_si=`mu[7]`,
+    hp_si=`mu[8]`,
+    g=`mu[9]`,
+    l=`mu[10]`,
+    cd_ts=`mu[11]`,
+    wd_ts=`mu[12]`,
+    cp_ts=`mu[13]`,
+    hp_ts=`mu[14]`,
+    cd_ss=`mu[15]`,
+    wd_ss=`mu[16]`,
+    cp_ss=`mu[17]`,
+    hp_ss=`mu[18]`,
+    cd_ta=`mu[19]`,
+    wd_ta=`mu[20]`,
+    cp_ta=`mu[21]`,
+    hp_ta=`mu[22]`,
+    cd_sa=`mu[23]`,
+    wd_sa=`mu[24]`,
+    cp_sa=`mu[25]`,
+    hp_sa=`mu[26]`
+  ) %>% 
+  full_join(predictors) %>% 
+  mutate(
+    ra=age-20,
+    guess=inv_logit(g),
+    lapse=inv_logit(l),
+    cdt=cd_ti+cd_ta*ra+cd_ts*status,
+    wdt=wd_ti+wd_ta*ra+wd_ts*status,
+    cpt=cp_ti+cp_ta*ra+cp_ts*status,
+    hpt=hp_ti+hp_ta*ra+hp_ts*status,
+    cds=exp(cd_si+cd_sa*ra+cd_ss*status),
+    wds=exp(wd_si+wd_sa*ra+wd_ss*status),
+    cps=exp(cp_si+cp_sa*ra+cp_ss*status),
+    hps=exp(hp_si+hp_sa*ra+hp_ss*status),
+    CD_p=guess+(1-guess-lapse)*pnorm(x,cdt,1/cds),
+    WD_p=guess+(1-guess-lapse)*pnorm(x,wdt,1/wds),
+    CP_p=guess+(1-guess-lapse)*pnorm(x,cpt,1/cps),
+    HP_p=guess+(1-guess-lapse)*pnorm(x,hpt,1/hps),
+    ) %>%
+  pivot_longer(
+    cols = ends_with("_p"),
+    names_to = "task",
+    names_pattern = "(.*)_p",
+    values_to = "p"
+  ) %>% 
+  mutate(task=factor(task,c('CD','WD','CP','HP'))) %>% 
+  group_by(x,status,task) %>% 
+  summarise(
+    m=median(p),
+    lb_60=quantile(p,0.20),    
+    ub_60=quantile(p,0.80),
+    lb_80=quantile(p,0.10),    
+    ub_80=quantile(p,0.90),
+    lb_90=quantile(p,0.05),    
+    ub_90=quantile(p,0.95),
+    lb_95=quantile(p,0.025),
+    ub_95=quantile(p,0.975)
+    ) %>% 
+  pivot_longer(
+    cols = matches("(lb|ub)_\\d+"),
+    names_to = c("bound", "ci"), 
+    names_pattern = "(lb|ub)_(\\d+)", 
+    values_to = "value") %>% 
+  pivot_wider(
+      names_from = "bound",
+      values_from = "value"
+  ) %>% 
+  filter((task=='CD'&x<10)|(task=='WD'&x<15)|task=='CP'|(task=='HP'&x<20)) %>% 
+  mutate(status_st=if_else(status==0, "control", "patient"))
+
+pf_neuropathy$x[pf_neuropathy$task=='CD']<-30-pf_neuropathy$x[pf_neuropathy$task=='CD']
+pf_neuropathy$x[pf_neuropathy$task=='WD']<-30+pf_neuropathy$x[pf_neuropathy$task=='WD']
+pf_neuropathy$x[pf_neuropathy$task=='CP']<-30-pf_neuropathy$x[pf_neuropathy$task=='CP']
+pf_neuropathy$x[pf_neuropathy$task=='HP']<-30+pf_neuropathy$x[pf_neuropathy$task=='HP']
+
+pf_neuropathy %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=30),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci,fill=task))+
+  geom_line(aes(x=x,y=m,color=task))+
+  theme_minimal()+
+  facet_grid(status_st~task,scales = 'free_x')+
+  scale_color_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_fill_manual(
+    values=c('#56B4E9','#E69F00','#0072B2','#D55E00'),
+    labels=c('CD','WD','CP','HP')
+  )+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    fill='Task',
+    color='Task',
+    alpha='CI',
+    title='Group mean psychometric functions for patients and controls at age 50'
+      )+
+  theme(
+    strip.text.x = element_blank(),
+    strip.background.x = element_blank(),
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.box = "horizontal"
+  )
+```
+
+## Individual fits control
+
+As a sanity check, we should also check that the model fits the data for the different participants and tasks.
+
+```{r, echo=echo_f,error=error_f,warning=warning_f,message=message_f}
+predictors<-expand_grid(x=seq(0.1,30,.1),.draw=1:8000)
+
+draws_an<-fit_an$draws(variables = c('alpha','beta','gamma','lambda'),format='df')%>%
+  pivot_longer(!starts_with('.'), names_to = "param", values_to = "value")
+
+draws_an_task <- draws_an %>%
+  filter(str_detect(param, "alpha|beta")) %>%
+  extract(param, into = c("param", "task", "participant"),
+          regex = "([a-z]+)\\[([^,]+),([^\\]]+)\\]") %>%
+  pivot_wider(names_from = param, values_from = value)
+
+draws_an_nontask <- draws_an %>%
+  filter(str_detect(param, "gamma|lambda")) %>%
+  extract(param, into = c("param", "participant"),
+          regex = "([a-z]+)\\[([^\\]]+)\\]") %>%
+  pivot_wider(names_from = param, values_from = value)
+
+# Join
+draws_an <- draws_an_task %>%
+  full_join(draws_an_nontask) %>% 
+  mutate(participant= as.integer(participant)) %>%
+  arrange(participant) %>% 
+  full_join(predictors) %>% 
+  mutate(p=gamma+(1-gamma-lambda)*pnorm(x,alpha,1/beta)) %>% 
+  group_by(x,participant,task) %>% 
+  summarise(
+    m=median(p),
+    lb_60=quantile(p,0.20),    
+    ub_60=quantile(p,0.80),
+    lb_80=quantile(p,0.10),    
+    ub_80=quantile(p,0.90),
+    lb_90=quantile(p,0.05),    
+    ub_90=quantile(p,0.95),
+    lb_95=quantile(p,0.025),
+    ub_95=quantile(p,0.975)
+    ) %>% 
+  pivot_longer(
+    cols = matches("(lb|ub)_\\d+"),
+    names_to = c("bound", "ci"), 
+    names_pattern = "(lb|ub)_(\\d+)", 
+    values_to = "value") %>% 
+  pivot_wider(
+      names_from = "bound",
+      values_from = "value"
+  )
+draws_an$task[draws_an$task=='1']<-'CD'
+draws_an$task[draws_an$task=='2']<-'WD'
+draws_an$task[draws_an$task=='3']<-'CP'
+draws_an$task[draws_an$task=='4']<-'HP'
+
+d <- read_csv("data/aggregated_results.csv") %>% 
+  filter(
+    recording_deviates_from_target==0,
+    recording_deviates_from_mean==0,
+    !is.na(response),
+    !subject%in%c(2003,2007,2021,3006,3009,3012,3017,3019,4003,4025)
+  ) %>% 
+  mutate(recorded_intensity=round(recorded_intensity,1)) %>% 
+  group_by(recorded_intensity,subject,condition) %>% 
+  summarise(prop=mean(response),n=sum(response>-1)) %>% 
+  arrange(subject)
+
+d$task[d$condition==1]<-'CD'
+d$task[d$condition==2]<-'WD'
+d$task[d$condition==3]<-'CP'
+d$task[d$condition==4]<-'HP'
+
+participant<-unique(d$subject)
+
+for(pdx in 1:length(unique(d$subject))){
+  d$subject[d$subject==participant[pdx]]<-pdx
+}
+d<-d %>% rename(participant=subject,x=recorded_intensity)
+
+draws_an %>% 
+  filter(participant<56,task=='CD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#56B4E9')+
+  geom_line(aes(x=x,y=m),color='#56B4E9')+
+  geom_point(data=d %>% filter(participant<56,task=='CD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant>55,task=='CD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#56B4E9')+
+  geom_line(aes(x=x,y=m),color='#56B4E9')+
+  geom_point(data=d %>% filter(participant>55,task=='CD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant<56,task=='CP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#0072B2')+
+  geom_line(aes(x=x,y=m),color='#0072B2')+
+  geom_point(data=d %>% filter(participant<56,task=='CP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant>55,task=='CP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#0072B2')+
+  geom_line(aes(x=x,y=m),color='#0072B2')+
+  geom_point(data=d %>% filter(participant>55,task=='CP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant<56,task=='WD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#E69F00')+
+  geom_line(aes(x=x,y=m),color='#E69F00')+
+  geom_point(data=d %>% filter(participant<56,task=='WD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant>55,task=='WD') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#E69F00')+
+  geom_line(aes(x=x,y=m),color='#E69F00')+
+  geom_point(data=d %>% filter(participant>55,task=='WD'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant<56,task=='HP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#D55E00')+
+  geom_line(aes(x=x,y=m),color='#D55E00')+
+  geom_point(data=d %>% filter(participant<56,task=='HP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+
+draws_an %>% 
+  filter(participant>55,task=='HP') %>% 
+  ggplot()+
+  geom_vline(aes(xintercept=0),'linetype'='dotted')+
+  geom_ribbon(aes(x=x,ymin=lb,ymax=ub,alpha=ci),fill='#D55E00')+
+  geom_line(aes(x=x,y=m),color='#D55E00')+
+  geom_point(data=d %>% filter(participant>55,task=='HP'),aes(x=x,y=prop,color=n))+
+  theme_minimal()+
+  facet_wrap(participant~.,ncol = 8)+
+  scale_alpha_manual(
+    values = c(.4,.3,.2,.1),
+    labels=c('60%','80%','90%','95%'))+
+  xlab('Temperature (C)')+
+  ylab('P(response="yes")')+
+  labs(
+    alpha='CI',
+    title='Participant fits'
+      )+
+  scale_color_continuous(trans = "log10",type = 'viridis')
+```
+
+
+
+
+
+
+

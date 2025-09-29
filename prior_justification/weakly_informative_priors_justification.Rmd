@@ -1,0 +1,114 @@
+---
+title: "Weakly informative prior justification"
+author: "AS Courtin"
+date: "2024-10-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cmdstanr)
+```
+
+For all parameters, priors on tau have mean 0 and the same scale as the priors on mu. All mu priors are set by determining a range of interest and then setting a gaussian prior that include these values within the M+-2SD range.
+
+# Gaussian PF
+
+### Threshold
+
+Detection threshold should be smaller than pain thresholds. Detection thresholds should have good coverage in the 0 to 10 range, pain thresholds should have good coverage in the 10 to 20 range. This can be achieved by having prior group means of 5 and 15, respectively, and std of 5 and 10.
+
+### Slope
+
+We want to cover a range of potential slope values that is compatible with full transition in less than 1C and more than 30C. The spread of a Gaussian PF (operationalized as the distance covered in 95% of the transition range) is given by (qnorm(0.975)-qnorm(0.025))/beta.
+
+```{r}
+log_beta=seq(-3,0,.1)
+plot(log_beta,(qnorm(0.975)-qnorm(0.025))/exp(log_beta),type="l")
+log_beta=seq(0,3,.1)
+plot(log_beta,(qnorm(0.975)-qnorm(0.025))/exp(log_beta),type="l")
+```
+
+It looks like we want to span the [-2,2] range with our prior, which would be easily achieved by using Normal(0,1).
+
+### Lapse and guess rates
+
+For these parameters, we want to roughly cover a range spanning from 0.1% to 5%.
+
+```{r}
+gamma=seq(-8,-4,.5)
+plot(gamma,0.5/(1+exp(-gamma)),type="l")
+gamma=seq(-4,0,.5)
+plot(gamma,0.5/(1+exp(-gamma)),type="l")
+```
+
+Looks like we want to cover the [-5 -3] range, which we would do by using Normal(-4,.5) priors.
+
+# Quick PF
+The same considerations apply for models using the Quick PF.
+Lapse and guess rates priors can stay exactly the same.
+
+### Threshold
+Quick thresholds are constrained to be positive, meaning that we set their priors on the log-scale.
+For the gaussian, we have detection thresholds spanning roughly [-5 15] and [5 25].
+Negative values cannot be translated to the log scale so let's say [0.1 15] for detection.
+
+```{r}
+log(.1)
+log(15)
+log(5)
+log(25)
+```
+So let's say Normal(0,1) for detection and Normal(2.5,0.5) for pain.
+
+### Slope
+
+The difficulty for the quick is that both the threshold and the slope influence the spread:
+spread = alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta))
+
+This means that we need to set different slope priors for detection and pain.
+Let's insure that our priors are wide enough that spreads of less than 1 and more than 30 are supported for the extremes of the threshold priors (.1 and 25)
+
+
+```{r}
+alpha=.1
+log_beta=seq(-1.3,0,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+log_beta=seq(-0.5,0,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+
+alpha=15
+log_beta=seq(0,1,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+log_beta=seq(4,6,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+```
+So [-1.3 4.3] for detection. Let's use Normal(1.5,1.5).
+
+```{r}
+alpha=5
+log_beta=seq(-0.5,0,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+log_beta=seq(2,4,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+
+alpha=25
+log_beta=seq(1,2,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+log_beta=seq(4,6,.1)
+beta=exp(log_beta)
+plot(log_beta,alpha*((-log2(0.025))^(1/beta)-(-log2(0.975))^(1/beta)))
+```
+So [-0.1 4.9] for pain. Let's use Normal(2.5,1.25).
+
+# Gaussian PF with threshold constrained to be positive
+
+The threshold cannot be negative as the would mean the participant would be able to detect stimuli which are absent. We will also test a model in which the PF is a Gaussian but we define the threshold in log-space to ensure it is always positive. This is a bit silly at this stage but it is going to be a useful model when testing effects of age. The prior for the threshold is the same as for the threshold of the Quick.
