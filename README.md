@@ -14,7 +14,7 @@ Public repository containing the data as well as analysis and visualization code
 
 Thermal perception is determined not only by sensitivity but also by precision, yet the latter is often overlooked in thermosensation and pain research. This study examined how ageing and diabetic polyneuropathy (DPN) affect the sensitivity and precision of thermal perception and whether combining these parameters can aid in distinguishing patients from healthy controls. Using a Bayesian hierarchical modelling approach, we estimated psychometric function thresholds (sensitivity) and slopes (precision) for cold detection, warm detection, cold pain, and heat pain in 86 healthy adults (aged 21–80) and 34 patients with probable DPN. We assessed age- and neuropathy-related effects on these parameters. Using simulated classification analyses, we also tested their utility in discriminating patients from controls. Ageing was associated with elevated detection and cold pain thresholds and reduced precision of cold detection. Patients with DPN showed similar patterns: higher detection thresholds and lower cold detection slopes while pain-related parameters were largely unaffected. These findings indicate that ageing and neuropathy produce qualitatively similar changes in thermosensory function, particularly affecting cold detection sensitivity and precision. Classification based on detection thresholds and cold detection slope successfully discriminated patients from controls, with cold detection slope offering the best performance. Combining threshold and slope parameters did not significantly improve classification accuracy. Accurate classification was not possible based on pain thresholds and slopes. Modelling both thresholds and slopes provides a more comprehensive view of sensory decline and may enhance the detection of early or subtle sensory dysfunction.
 
-## Directory Structure {#directory-structure}
+## Directory Structure {#structure}
 
 The repository is structured in the following way:
 
@@ -53,7 +53,7 @@ Information about deviations from pre-registration : <https://osf.io/wghf6>
 
 Model fits and LOO-CV objects: <https://osf.io/7xg2n/files/osfstorage>
 
-## Citation
+## Citation {#citation}
 
 If you use our codes or data in your research, please cite:
 
