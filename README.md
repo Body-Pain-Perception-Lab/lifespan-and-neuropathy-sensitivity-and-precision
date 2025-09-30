@@ -7,7 +7,8 @@ Public repository containing the data as well as analysis and visualization code
 1.  [Abstract of the preprint](#abstract)
 2.  [Directory structure](#directory-structure)
 3.  [Additionnal information and data](#additional)
-4.  [Contact](#contact)
+4.  [Citation](#citation)
+5.  [Contact](#contact)
 
 ## Abstract of the preprint {#abstract}
 
@@ -42,13 +43,24 @@ PHS-manuscript/
   └── RTAND.Rmd                   # Analyses report
 ```
 
-## Additionnal information and data {#additional}
+## Additional information and data {#additional}
 
-The pre-print reporting this project can be found here: LINK
+The pre-print reporting this project can be found here: <https://www.biorxiv.org/content/10.1101/2025.09.22.677851v1>
 
 The pre-registered data analysis plan for this project can be found here: <https://osf.io/dvz94>
 
-Information about deviations from pre-registration as well as results from the analysis (fitted models and LOO objects) can be found here: LINK
+Information about deviations from pre-registration : <https://osf.io/wghf6>
+
+Model fits and LOO-CV objects: <https://osf.io/7xg2n/files/osfstorage>
+
+## Citation
+
+If you use our codes or data in your research, please cite:
+
+```         
+Arthur S. Courtin, Camilla E. Krænge, Alexandra G. Mitchell, Jesper Fischer Ehmsen, Peter K. Brask-Thomsen, Sandra Sif Gylfadottir, Francesca Fardo
+bioRxiv 2025.09.22.677851; doi: https://doi.org/10.1101/2025.09.22.677851
+```
 
 ## Contact {#contact}
 
