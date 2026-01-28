@@ -1,5 +1,5 @@
 // Stan model for the ageing and neuropathy dataset
-// PF formulation : Quick
+// PF formulation : Gaussian
 // Age-threshold relationship formulation : log-linear
 // Guess and lapse rate treatment: full parametrization
 // Age - neuropathy intercation : yes
@@ -79,83 +79,82 @@ transformed parameters{
   gamma = .5*inv_logit(eta_0_0[9,] + eta_0_1[9,] .* h + (mu[T+9] + mu[3*T%/%2+9] .* h) .*ra);
   lambda = .5*inv_logit(eta_0_0[10,] + eta_0_1[10,] .* h + (mu[T+10] + mu[3*T%/%2+10] .* h) .*ra);
 
-  theta_cdt = 1-2^(-(x_cdt./alpha[1][p_cdt])^beta[1][p_cdt]);
-  theta_wdt = 1-2^(-(x_wdt./alpha[2][p_wdt])^beta[2][p_wdt]);
-  theta_cpt = 1-2^(-(x_cpt./alpha[3][p_cpt])^beta[3][p_cpt]);
-  theta_hpt = 1-2^(-(x_hpt./alpha[4][p_hpt])^beta[4][p_hpt]);
+  theta_cdt = Phi(beta[1][p_cdt].*(x_cdt-alpha[1][p_cdt]));
+  theta_wdt = Phi(beta[2][p_wdt].*(x_wdt-alpha[2][p_wdt]));
+  theta_cpt = Phi(beta[3][p_cpt].*(x_cpt-alpha[3][p_cpt]));
+  theta_hpt = Phi(beta[4][p_hpt].*(x_hpt-alpha[4][p_hpt]));
 }
 model{
   //Priors
   //Eta_0_0
-  mu[1] ~ normal(-0.57,0.17*4);
-  mu[2] ~ normal(1.35,0.09*4);
-  mu[3] ~ normal(3.09,0.06*4);
-  mu[4] ~ normal(2.72,0.03*4);
-  mu[5] ~ normal(0.71,0.14*4);
-  mu[6] ~ normal(1.27,0.15*4);
-  mu[7] ~ normal(1.51,0.11*4);
-  mu[8] ~ normal(2.59,0.17*4);
-  mu[9] ~ normal(-3.25,0.39);
-  mu[10] ~ normal(-4.02,0.36);
+  mu[1] ~ normal(-0.52,0.15*4);
+  mu[2] ~ normal(1.35,0.06*4);
+  mu[3] ~ normal(3.06,0.08*4);
+  mu[4] ~ normal(2.71,0.03*4);
+  mu[5] ~ normal(1.20,0.20*4);
+  mu[6] ~ normal(-0.24,0.15*4);
+  mu[7] ~ normal(-1.64,0.12*4);
+  mu[8] ~ normal(-0.30,0.16*4);
+  mu[9] ~ normal(-3.32,0.41);
+  mu[10] ~ normal(-3.74,0.35);
   //Eta_0_1
-  mu[11] ~ normal(0,1.02);
+  mu[11] ~ normal(0,0.92);
   mu[12] ~ normal(0,0.53);
-  mu[13] ~ normal(0,0.41);
-  mu[14] ~ normal(0,0.16);
-  mu[15] ~ normal(0,0.39);
-  mu[16] ~ normal(0,0.73);
-  mu[17] ~ normal(0,0.33);
-  mu[18] ~ normal(0,0.97);
-  mu[19] ~ normal(0,0.86);
-  mu[20] ~ normal(0,0.39);
+  mu[13] ~ normal(0,0.38);
+  mu[14] ~ normal(0,0.17);
+  mu[15] ~ normal(0,1.09);
+  mu[16] ~ normal(0,0.75);
+  mu[17] ~ normal(0,0.53);
+  mu[18] ~ normal(0,0.85);
+  mu[19] ~ normal(0,0.63);
+  mu[20] ~ normal(0,0.55);
   //Eta_1_0
-  mu[21] ~ normal(0,1.02/60);
+  mu[21] ~ normal(0,0.92/60);
   mu[22] ~ normal(0,0.53/60);
-  mu[23] ~ normal(0,0.41/60);
-  mu[24] ~ normal(0,0.16/60);
-  mu[25] ~ normal(0,0.39/60);
-  mu[26] ~ normal(0,0.73/60);
-  mu[27] ~ normal(0,0.33/60);
-  mu[28] ~ normal(0,0.97/60);
-  mu[29] ~ normal(0,0.86/60);
-  mu[30] ~ normal(0,0.39/60);
+  mu[23] ~ normal(0,0.38/60);
+  mu[24] ~ normal(0,0.17/60);
+  mu[25] ~ normal(0,1.09/60);
+  mu[26] ~ normal(0,0.75/60);
+  mu[27] ~ normal(0,0.53/60);
+  mu[28] ~ normal(0,0.85/60);
+  mu[29] ~ normal(0,0.63/60);
+  mu[30] ~ normal(0,0.55/60);
   //Eta_1_1
-  mu[31] ~ normal(0,1.02/60);
+  mu[31] ~ normal(0,0.92/60);
   mu[32] ~ normal(0,0.53/60);
-  mu[33] ~ normal(0,0.41/60);
-  mu[34] ~ normal(0,0.16/60);
-  mu[35] ~ normal(0,0.39/60);
-  mu[36] ~ normal(0,0.73/60);
-  mu[37] ~ normal(0,0.33/60);
-  mu[38] ~ normal(0,0.97/60);
-  mu[39] ~ normal(0,0.86/60);
-  mu[40] ~ normal(0,0.39/60);
+  mu[33] ~ normal(0,0.38/60);
+  mu[34] ~ normal(0,0.17/60);
+  mu[35] ~ normal(0,1.09/60);
+  mu[36] ~ normal(0,0.75/60);
+  mu[37] ~ normal(0,0.53/60);
+  mu[38] ~ normal(0,0.85/60);
+  mu[39] ~ normal(0,0.63/60);
+  mu[40] ~ normal(0,0.55/60);
   
   //Eta_0_0
-  tau[1] ~ normal(1.02,0.15*4);
+  tau[1] ~ normal(0.92,0.13*4);
   tau[2] ~ normal(0.53,0.07*4);
-  tau[3] ~ normal(0.41,0.05*4);
-  tau[4] ~ normal(0.16,0.04*4);
-  tau[5] ~ normal(0.39,0.19*4);
-  tau[6] ~ normal(0.73,0.14*4);
-  tau[7] ~ normal(0.33,0.14*4);
-  tau[8] ~ normal(0.97,0.15*4);
-  tau[9] ~ normal(0.86,0.36);
-  tau[10] ~ normal(0.39,0.28);
+  tau[3] ~ normal(0.38,0.04*4);
+  tau[4] ~ normal(0.17,0.04*4);
+  tau[5] ~ normal(1.09,0.19*4);
+  tau[6] ~ normal(0.75,0.14*4);
+  tau[7] ~ normal(0.53,0.11*4);
+  tau[8] ~ normal(0.85,0.14*4);
+  tau[9] ~ normal(0.63,0.36);
+  tau[10] ~ normal(0.55,0.38);
   //Eta_0_1
-  tau[11] ~ normal(0,1.02);
+  tau[11] ~ normal(0,0.92);
   tau[12] ~ normal(0,0.53);
-  tau[13] ~ normal(0,0.41);
-  tau[14] ~ normal(0,0.16);
-  tau[15] ~ normal(0,0.39);
-  tau[16] ~ normal(0,0.73);
-  tau[17] ~ normal(0,0.33);
-  tau[18] ~ normal(0,0.97);
-  tau[19] ~ normal(0,0.86);
-  tau[20] ~ normal(0,0.39);
+  tau[13] ~ normal(0,0.38);
+  tau[14] ~ normal(0,0.17);
+  tau[15] ~ normal(0,1.09);
+  tau[16] ~ normal(0,0.75);
+  tau[17] ~ normal(0,0.53);
+  tau[18] ~ normal(0,0.85);
+  tau[19] ~ normal(0,0.63);
+  tau[20] ~ normal(0,0.55);
 
-  
-  L ~ lkj_corr_cholesky(2);
+  L ~ lkj_corr_cholesky(1);
   
   to_vector(z) ~ std_normal();
   
@@ -167,26 +166,4 @@ model{
 }
 generated quantities{
   matrix[T,T] omega = L * L'; //Correlation matrix
-
-  vector[N_cdt] log_lik_cdt;               //Log-likelihood for each cold detection trial
-  vector[N_wdt] log_lik_wdt;               //Log-likelihood for each warm detection trial
-  vector[N_cpt] log_lik_cpt;               //Log-likelihood for each cold pain trial
-  vector[N_hpt] log_lik_hpt;               //Log-likelihood for each heat pain trial
-  vector[N_cdt+N_wdt+N_cpt+N_hpt] log_lik; //Log-likelihood for each trial
-
-  for(n in 1:N_cdt){
-    log_lik_cdt[n] = bernoulli_lpmf(y_cdt[n]|gamma[p_cdt[n]] + (1 - gamma[p_cdt[n]] - lambda[p_cdt[n]]) .* theta_cdt[n]);
-  }
-  for(n in 1:N_wdt){
-    log_lik_wdt[n] = bernoulli_lpmf(y_wdt[n]|gamma[p_wdt[n]] + (1 - gamma[p_wdt[n]] - lambda[p_wdt[n]]) .* theta_wdt[n]);
-  }
-  for(n in 1:N_cpt){
-    log_lik_cpt[n] = bernoulli_lpmf(y_cpt[n]|gamma[p_cpt[n]] + (1 - gamma[p_cpt[n]] - lambda[p_cpt[n]]) .* theta_cpt[n]);
-  }
-  for(n in 1:N_hpt){
-    log_lik_hpt[n] = bernoulli_lpmf(y_hpt[n]|gamma[p_hpt[n]] + (1 - gamma[p_hpt[n]] - lambda[p_hpt[n]]) .* theta_hpt[n]);
-  }
-  vector[N_cdt + N_wdt]  temp1 = append_row(log_lik_cdt, log_lik_wdt);
-  vector[N_cpt + N_hpt]  temp2 = append_row(log_lik_cpt, log_lik_hpt);
-  log_lik = append_row(temp1, temp2);
 }
