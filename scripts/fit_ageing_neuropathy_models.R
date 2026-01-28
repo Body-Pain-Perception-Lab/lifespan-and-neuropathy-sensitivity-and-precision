@@ -78,7 +78,6 @@ fit_model<-function(parameters){
   fit$summary(c('mu','tau')) %>% print(n=40)
   
   fit$save_object(paste0(parameters$directory,"/results/fits/", str_remove_all(parameters$model,".stan"), ".rds"))
-
   
   sink(NULL)
 }
@@ -92,7 +91,6 @@ d <- read_csv("data/aggregated_results.csv") %>%
     recording_deviates_from_mean==0,
     !is.na(response),
     !subject%in%c(3019), #exclusion based on saturation check plots
-    subject<5000
   ) %>% 
   arrange(subject)
 participant<-unique(d$subject)
@@ -103,6 +101,7 @@ participant_info<-read_csv("data/demographics.csv") %>%
 
 P<-length(participant)
 a<-participant_info$age
+h<-participant_info$ID>=5000
 
 for(pdx in 1:P){
   d$subject[d$subject==participant[pdx]]<-pdx
@@ -143,6 +142,7 @@ p_hpt<-d_hpt$subject
 data<-list(
   P=P,
   a=a,
+  h=as.numeric(h),
   N_cdt=N_cdt,
   N_wdt=N_wdt,
   N_cpt=N_cpt,
@@ -163,7 +163,7 @@ data<-list(
 
 #### Prepare lists of models #############
 models=c(
-  'Gaussian_constrained_threshold_ageing.stan'
+  'Gaussian_constrained_threshold_ageing_and_neuropathy_NRS_NI.stan'
   )
 
 #### Prepare lists for fitting runs ##############
